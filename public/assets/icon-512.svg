@@ -1,0 +1,220 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background Gradients -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+
+    <!-- Metallic Gold/Amber Gradients -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="25%" stop-color="#f59e0b" />
+      <stop offset="75%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+
+    <linearGradient id="carBodyGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="15%" stop-color="#fbbf24" />
+      <stop offset="60%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+
+    <linearGradient id="hoodGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fde047" />
+      <stop offset="60%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+
+    <linearGradient id="windshieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="40%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+
+    <linearGradient id="beamGradLeft" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.75" />
+      <stop offset="60%" stop-color="#38bdf8" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
+    </linearGradient>
+
+    <linearGradient id="beamGradRight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" stop-opacity="0.75" />
+      <stop offset="60%" stop-color="#38bdf8" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
+    </linearGradient>
+
+    <radialGradient id="haloGrad" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.35" />
+      <stop offset="45%" stop-color="#f59e0b" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#020617" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="radarGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.25" />
+      <stop offset="70%" stop-color="#10b981" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Filters for Glow & Shadows -->
+    <filter id="taxiGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="heavyShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.8" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle Container with Premium Border -->
+  <rect width="512" height="512" rx="116" fill="url(#bgGrad)" />
+  <rect x="10" y="10" width="492" height="492" rx="106" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.45" />
+  <rect x="18" y="18" width="476" height="476" rx="98" fill="none" stroke="#38bdf8" stroke-width="1" stroke-opacity="0.2" />
+
+  <!-- Ambient Light Center Halo -->
+  <circle cx="256" cy="230" r="210" fill="url(#haloGrad)" />
+
+  <!-- Radar GPS Waves in Background -->
+  <circle cx="256" cy="256" r="200" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="6 6" opacity="0.4" />
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#475569" stroke-width="1.5" opacity="0.35" />
+  <circle cx="256" cy="256" r="90" fill="none" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4 4" opacity="0.4" />
+
+  <!-- Perspective Highway / Runway Lines -->
+  <g opacity="0.85">
+    <polygon points="256,290 100,470 136,470 256,310" fill="#1e293b" opacity="0.4" />
+    <polygon points="256,290 412,470 376,470 256,310" fill="#1e293b" opacity="0.4" />
+    <!-- Center Dashed Road Markings -->
+    <polygon points="254,340 258,340 260,370 252,370" fill="#f59e0b" opacity="0.7" />
+    <polygon points="252,390 260,390 263,430 249,430" fill="#fbbf24" opacity="0.9" />
+    <polygon points="248,450 264,450 268,485 244,485" fill="#fef08a" />
+  </g>
+
+  <!-- Headlight Laser Beams -->
+  <polygon points="165,335 45,465 140,475 195,340" fill="url(#beamGradLeft)" opacity="0.6" />
+  <polygon points="347,335 467,465 372,475 317,340" fill="url(#beamGradRight)" opacity="0.6" />
+
+  <!-- Main 3D Car Vector -->
+  <g filter="url(#heavyShadow)">
+
+    <!-- Car Shadow -->
+    <ellipse cx="256" cy="375" rx="170" ry="22" fill="#000000" opacity="0.75" />
+
+    <!-- Wheels / Tires (Front facing) -->
+    <rect x="112" y="325" width="34" height="48" rx="10" fill="#090d16" stroke="#334155" stroke-width="2" />
+    <rect x="366" y="325" width="34" height="48" rx="10" fill="#090d16" stroke="#334155" stroke-width="2" />
+    <line x1="116" y1="345" x2="142" y2="345" stroke="#64748b" stroke-width="2" />
+    <line x1="370" y1="345" x2="396" y2="345" stroke="#64748b" stroke-width="2" />
+
+    <!-- Car Cabin / Roof Structure -->
+    <path d="M165,225 L190,148 Q195,140 210,138 L302,138 Q317,140 322,148 L347,225 Z" fill="#0f172a" stroke="#d97706" stroke-width="2" />
+
+    <!-- Windshield -->
+    <path d="M173,222 L196,152 Q200,146 212,145 L300,145 Q312,146 316,152 L339,222 Z" fill="url(#windshieldGrad)" />
+    
+    <!-- Windshield Specular Reflection -->
+    <path d="M205,152 L185,218 L212,218 L228,152 Z" fill="#ffffff" opacity="0.12" />
+    <path d="M226,152 L275,152 L255,218 L240,218 Z" fill="#38bdf8" opacity="0.15" />
+
+    <!-- Side Mirrors -->
+    <path d="M145,216 Q130,216 132,226 Q134,234 150,232 L160,230 Z" fill="url(#carBodyGrad)" stroke="#92400e" stroke-width="1.5" />
+    <path d="M367,216 Q382,216 380,226 Q378,234 362,232 L352,230 Z" fill="url(#carBodyGrad)" stroke="#92400e" stroke-width="1.5" />
+
+    <!-- Main Car Body Shell -->
+    <path d="M 136,230 
+             Q 138,222 152,222 
+             L 360,222 
+             Q 374,222 376,230 
+             L 384,285 
+             Q 388,315 372,335 
+             L 360,345 
+             Q 350,352 330,354 
+             L 182,354 
+             Q 162,352 152,345 
+             L 140,335 
+             Q 124,315 128,285 Z" 
+          fill="url(#carBodyGrad)" 
+          stroke="#78350f" 
+          stroke-width="2.5" />
+
+    <!-- Hood Sculpt Curves -->
+    <path d="M175,232 L337,232 L348,278 Q320,290 256,290 Q192,290 164,278 Z" fill="url(#hoodGrad)" opacity="0.95" />
+    <path d="M215,234 L205,278 Q256,284 256,284" stroke="#fef08a" stroke-width="1.5" fill="none" opacity="0.4" />
+    <path d="M297,234 L307,278 Q256,284 256,284" stroke="#92400e" stroke-width="1.5" fill="none" opacity="0.4" />
+
+    <!-- Center Hood Emblem: Star / Local Identity -->
+    <circle cx="256" cy="280" r="9" fill="#020617" stroke="#fbbf24" stroke-width="2" />
+    <polygon points="256,273 258,278 263,278 259,281 261,286 256,283 251,286 253,281 249,278 254,278" fill="#f59e0b" />
+
+    <!-- Front Grille (Sleek Dark Sport Design) -->
+    <path d="M188,300 L324,300 L318,332 Q256,338 194,332 Z" fill="#090d16" stroke="#d97706" stroke-width="2" />
+    <line x1="198" y1="308" x2="314" y2="308" stroke="#334155" stroke-width="1.5" />
+    <line x1="204" y1="316" x2="308" y2="316" stroke="#334155" stroke-width="1.5" />
+    <line x1="212" y1="324" x2="300" y2="324" stroke="#334155" stroke-width="1.5" />
+
+    <!-- License Plate: "32 · الأبيض" -->
+    <rect x="222" y="330" width="68" height="18" rx="3" fill="#ffffff" stroke="#000000" stroke-width="1.5" />
+    <rect x="222" y="330" width="14" height="18" rx="2" fill="#1e3a8a" />
+    <circle cx="229" cy="336" r="2" fill="#fbbf24" />
+    <circle cx="229" cy="342" r="2" fill="#fbbf24" />
+    <text x="255" y="343" font-family="sans-serif" font-size="10" font-weight="900" fill="#0f172a" text-anchor="middle">32 TAXI</text>
+
+    <!-- Headlights (High-Tech Angular Projectors) -->
+    <!-- Left Light -->
+    <path d="M140,268 L188,272 L182,298 L136,288 Q134,276 140,268 Z" fill="#090d16" stroke="#fbbf24" stroke-width="2" />
+    <polygon points="144,272 182,275 178,294 140,285" fill="#fef08a" opacity="0.9" filter="url(#taxiGlow)" />
+    <circle cx="162" cy="283" r="6" fill="#ffffff" />
+
+    <!-- Right Light -->
+    <path d="M372,268 L324,272 L330,298 L376,288 Q378,276 372,268 Z" fill="#090d16" stroke="#fbbf24" stroke-width="2" />
+    <polygon points="368,272 330,275 334,294 372,285" fill="#fef08a" opacity="0.9" filter="url(#taxiGlow)" />
+    <circle cx="350" cy="283" r="6" fill="#ffffff" />
+
+    <!-- Lower Bumper & Fog Lights -->
+    <path d="M154,342 L182,348 L178,358 L148,350 Z" fill="#1e293b" />
+    <circle cx="164" cy="352" r="4" fill="#38bdf8" filter="url(#taxiGlow)" />
+
+    <path d="M358,342 L330,348 L334,358 L364,350 Z" fill="#1e293b" />
+    <circle cx="348" cy="352" r="4" fill="#38bdf8" filter="url(#taxiGlow)" />
+
+    <!-- Aerodynamic Front Splitter -->
+    <path d="M174,356 Q256,366 338,356 L342,362 Q256,372 170,362 Z" fill="#020617" stroke="#fbbf24" stroke-width="1.5" />
+
+    <!-- ROOF TAXI LIGHT SIGN -->
+    <!-- Base Bracket -->
+    <path d="M226,138 L286,138 L290,144 L222,144 Z" fill="#020617" />
+    <!-- Sign Box Body -->
+    <path d="M214,106 Q214,98 224,96 L288,96 Q298,98 298,106 L302,136 Q302,140 294,140 L218,140 Q210,140 210,136 Z" 
+          fill="url(#goldGrad)" 
+          stroke="#78350f" 
+          stroke-width="2.5" 
+          filter="url(#taxiGlow)" />
+    <!-- Glowing Sign Face -->
+    <path d="M220,102 L292,102 L296,134 L216,134 Z" fill="#fef08a" />
+    <!-- TAXI Typography on Sign -->
+    <text x="256" y="126" font-family="'Arial Black', 'Impact', sans-serif" font-size="24" font-weight="900" fill="#0f172a" text-anchor="middle" letter-spacing="2">TAXI</text>
+  </g>
+
+  <!-- High-Tech Floating GPS Pointer Pin at Top Right -->
+  <g transform="translate(365, 42)" filter="url(#heavyShadow)">
+    <circle cx="42" cy="42" r="40" fill="#090d16" stroke="url(#goldGrad)" stroke-width="3" />
+    <circle cx="42" cy="42" r="40" fill="url(#radarGrad)" />
+    <!-- Pin Icon -->
+    <path d="M42,16 C30,16 22,24 22,35 C22,48 42,66 42,66 C42,66 62,48 62,35 C62,24 54,16 42,16 Z" fill="url(#carBodyGrad)" stroke="#ffffff" stroke-width="1.5" />
+    <circle cx="42" cy="33" r="5" fill="#020617" />
+    <!-- Pulse Ring -->
+    <circle cx="42" cy="42" r="26" fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="3 3" opacity="0.8" />
+  </g>
+
+  <!-- Bottom Brand Ribbon Badge: "الأبيض سيدي الشيخ" -->
+  <g transform="translate(86, 436)">
+    <rect x="0" y="0" width="340" height="44" rx="22" fill="#090d16" stroke="url(#goldGrad)" stroke-width="2" filter="url(#heavyShadow)" />
+    <circle cx="24" cy="22" r="7" fill="#10b981" />
+    <circle cx="24" cy="22" r="12" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.6" />
+    <text x="175" y="28" font-family="'Cairo', sans-serif" font-size="18" font-weight="900" fill="#fef08a" text-anchor="middle">الأبيض سيدي الشيخ · 32</text>
+    <circle cx="316" cy="22" r="7" fill="#10b981" />
+    <circle cx="316" cy="22" r="12" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.6" />
+  </g>
+</svg>

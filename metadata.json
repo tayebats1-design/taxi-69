@@ -1,0 +1,6 @@
+{
+  "name": "تاكسي الأبيض سيدي الشيخ",
+  "description": "تطبيق حجز سيارات الأجرة والتنقل الذكي بمدينة الأبيض سيدي الشيخ وضواحيها",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
