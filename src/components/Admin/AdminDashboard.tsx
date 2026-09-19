@@ -30,6 +30,7 @@ import {
   Lock,
   Pencil
 } from 'lucide-react';
+import { CustomerManagementTab } from './CustomerManagementTab';
 
 interface AdminDashboardProps {
   drivers: Driver[];
@@ -64,7 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onViewOnMap,
   onLockAdmin,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'pricing' | 'drivers' | 'districts' | 'finance'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pricing' | 'drivers' | 'customers' | 'districts' | 'finance'>('overview');
   
   // Pricing Form State (محرك التسعير: فتح العداد، الكيلومتر، الذروة، دقيقة الانتظار)
   const [pricingForm, setPricingForm] = useState<PricingConfig>(pricingConfig);
@@ -335,6 +336,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               {pendingDriversCount}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('customers')}
+          className={`px-4 py-2.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'customers' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>إدارة الزبائن والمستخدمين</span>
         </button>
 
         <button
@@ -842,6 +853,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB: CUSTOMER MANAGEMENT (إدارة الزبائن والتحكم بعد التسجيل) */}
+      {activeTab === 'customers' && (
+        <div className="animate-in fade-in">
+          <CustomerManagementTab />
         </div>
       )}
 

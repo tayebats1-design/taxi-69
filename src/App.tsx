@@ -29,6 +29,8 @@ import {
   getSupabase 
 } from './lib/supabase';
 import { QuickRequestModal } from './components/Customer/QuickRequestModal';
+import { InAppPushBanner } from './components/Customer/InAppPushBanner';
+import { sendProximityPushNotification } from './services/pushNotification';
 
 import { 
   Compass, 
@@ -109,6 +111,7 @@ export default function App() {
   const customerWatchRef = useRef<number | null>(null);
   const driverWatchRef = useRef<number | null>(null);
   const lastHardwareGpsTimeRef = useRef<number>(0);
+  const proximityNotifiedRidesRef = useRef<{ [rideId: string]: boolean }>({});
 
   // Driver Authentication Modal State
   const [isDriverAuthOpen, setIsDriverAuthOpen] = useState(false);
@@ -317,6 +320,9 @@ export default function App() {
         setIsCustomerGpsActive(true);
         setUserCoords({ lat: latitude, lng: longitude, accuracy });
 
+        // Calculate distance from El Abiodh Sidi Cheikh center (32.8980, 0.5480)
+        const distToCenter = calculateDistanceKm(latitude, longitude, CITY_CENTER.lat, CITY_CENTER.lng);
+
         // Snap or find closest district
         let closest = districts[0];
         let minDistance = 999999;
@@ -328,25 +334,38 @@ export default function App() {
           }
         });
 
-        const liveGpsDistrict: District = {
-          id: `gps-customer-${Date.now()}`,
-          nameAr: `موقعي المباشر GPS (${closest.nameAr})`,
-          nameFr: 'Position GPS Live',
-          lat: latitude,
-          lng: longitude,
-          category: 'residential',
-        };
-
-        setPickupDistrict(liveGpsDistrict);
+        // If inside El Abiodh Sidi Cheikh or close territory (within 25km)
+        if (distToCenter <= 25) {
+          const liveGpsDistrict: District = {
+            id: `gps-customer-${Date.now()}`,
+            nameAr: `موقعي المباشر GPS (${closest.nameAr})`,
+            nameFr: 'Position GPS Live',
+            lat: latitude,
+            lng: longitude,
+            category: 'residential',
+          };
+          setPickupDistrict(liveGpsDistrict);
+          showToast(`تم تثبيت موقعك GPS بنجاح في ${closest.nameAr} 🛰️`);
+        } else {
+          // If testing from outside El Abiodh Sidi Cheikh, snap to closest district in town
+          // so local pricing, road route lines, and taxi movement work smoothly
+          setPickupDistrict(closest);
+          showToast(`تم استقبال إشارة GPS! تم تعيين موقع الانطلاق في ${closest.nameAr} لضمان دقة الخدمة بالأبيض سيدي الشيخ 📍`);
+        }
       };
 
       // 1. Immediate query for snappy response
       navigator.geolocation.getCurrentPosition(
         (pos) => applyPosition(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
         (err) => {
-          console.warn('Initial fast GPS fetch note:', err.message);
+          console.warn('Initial fast GPS fetch note, trying standard accuracy:', err.message);
+          navigator.geolocation.getCurrentPosition(
+            (fallbackPos) => applyPosition(fallbackPos.coords.latitude, fallbackPos.coords.longitude, fallbackPos.coords.accuracy),
+            () => setIsLocating(false),
+            { enableHighAccuracy: false, timeout: 10000, maximumAge: 10000 }
+          );
         },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
       );
 
       // 2. Continuous watch with error resilience
@@ -370,7 +389,7 @@ export default function App() {
                 applyPosition(fallbackPos.coords.latitude, fallbackPos.coords.longitude, fallbackPos.coords.accuracy);
               },
               () => {},
-              { enableHighAccuracy: false, timeout: 20000, maximumAge: 30000 }
+              { enableHighAccuracy: false, timeout: 15000, maximumAge: 30000 }
             );
           }
         },
@@ -440,14 +459,26 @@ export default function App() {
         setActiveRide(prev => {
           if (!prev || prev.assignedDriverId !== currentDriver.id) return prev;
 
-          // Check if driver reached pickup location via GPS (within 50 meters)
+          // Check if driver reached pickup location via GPS (< 100m proximity & arrival)
           if (
             prev.status === 'driver_arriving' || 
             prev.status === 'driver_assigned'
           ) {
             const dist = Math.hypot(lat - prev.pickupDistrict.lat, lng - prev.pickupDistrict.lng) * 111000;
-            if (dist <= 50) {
+            if (dist <= 100 && !proximityNotifiedRidesRef.current[prev.id]) {
+              proximityNotifiedRidesRef.current[prev.id] = true;
+              sounds.speakDriverProximityAlert(prev.id);
+              sendProximityPushNotification({
+                distanceMeters: Math.round(dist),
+                driverName: currentDriver.name,
+                carModel: currentDriver.carModel,
+                rideId: prev.id,
+                isTest: false,
+              });
+            }
+            if (dist <= 35) {
               sounds.playArrivalChime();
+              sounds.speakDriverArrivedAlert(prev.id, true);
               showToast('وصلت لتوك إلى موقع الزبون بالأبيض سيدي الشيخ! 🟢');
               return {
                 ...prev,
@@ -688,6 +719,27 @@ export default function App() {
             timestamp: Date.now(),
           });
 
+          // 3.5 Proximity Push Notification & Voice Alert Check (100 meters)
+          if (
+            activeRide.status === 'driver_arriving' && 
+            distToTarget <= 100 && 
+            !proximityNotifiedRidesRef.current[activeRide.id]
+          ) {
+            proximityNotifiedRidesRef.current[activeRide.id] = true;
+            if (currentRole === 'driver') {
+              sounds.speakDriverProximityAlert(activeRide.id);
+            } else if (currentRole === 'customer') {
+              sounds.speakCustomerProximityAlert(activeRide.id);
+            }
+            sendProximityPushNotification({
+              distanceMeters: Math.round(distToTarget),
+              driverName: assignedDriver.name,
+              carModel: assignedDriver.carModel,
+              rideId: activeRide.id,
+              isTest: false,
+            });
+          }
+
           // 4. Proximity & Arrival Check
           if (distToTarget <= 35 || currentIndex >= points.length - 1) {
             clearInterval(timerId);
@@ -819,7 +871,7 @@ export default function App() {
     }
   }, [currentRole, activeRide?.id, activeRide?.status, activeRide?.estimatedPrice]);
 
-  // Real-time Proximity Alert when driver approaches customer pickup (within 400m)
+  // Real-time Proximity Alert when driver approaches customer pickup (strictly within 100m)
   useEffect(() => {
     if (!activeRide || activeRide.status !== 'driver_arriving') return;
     const driver = drivers.find(d => d.id === activeRide.assignedDriverId);
@@ -831,7 +883,8 @@ export default function App() {
       dLoc.lng - activeRide.pickupDistrict.lng
     ) * 111000;
 
-    if (distMeters <= 400 && distMeters > 40) {
+    // Trigger audio proximity alert when within 100 meters
+    if (distMeters <= 100 && distMeters > 30) {
       if (currentRole === 'driver') {
         sounds.speakDriverProximityAlert(activeRide.id);
       } else if (currentRole === 'customer') {
@@ -927,6 +980,8 @@ export default function App() {
       };
       setActiveRide(updated);
       syncRideToSupabase(updated);
+      sounds.resetProximityAlert(rideId);
+      proximityNotifiedRidesRef.current[rideId] = false;
     }
     setDrivers(prev => prev.map(d => d.id === loggedInDriver.id ? { ...d, status: 'busy' } : d));
     sounds.playArrivalChime();
@@ -1133,6 +1188,9 @@ export default function App() {
         pendingRidesCount={activeRide && (activeRide.status === 'searching' || (activeRide.status as string) === 'pending') ? 1 : 0}
         isAdminAuthenticated={isAdminAuthenticated}
       />
+
+      {/* Real-time In-App Push Notification Alert Banner */}
+      <InAppPushBanner />
 
       {/* Dynamic Toast Notification */}
       {notificationMsg && (

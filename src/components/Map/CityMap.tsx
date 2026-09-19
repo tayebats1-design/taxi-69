@@ -858,9 +858,12 @@ export const CityMap: React.FC<CityMapProps> = ({
     const target = activeRide?.assignedDriverId 
       ? drivers.find(d => d.id === activeRide.assignedDriverId)
       : currentDriver || drivers.find(d => d.isOnline);
+
+    const lat = activeRide?.driverLocation?.lat ?? target?.currentLocation.lat;
+    const lng = activeRide?.driverLocation?.lng ?? target?.currentLocation.lng;
     
-    if (target && mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([target.currentLocation.lat, target.currentLocation.lng], 16, { duration: 1 });
+    if (lat !== undefined && lng !== undefined && mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([lat, lng], 16, { duration: 1 });
     } else {
       handleRecenterCity();
     }
@@ -872,12 +875,19 @@ export const CityMap: React.FC<CityMapProps> = ({
 
     if (activeRide && activeRide.assignedDriverId) {
       const driver = drivers.find(d => d.id === activeRide.assignedDriverId);
-      if (driver) {
+      const driverLat = activeRide.driverLocation?.lat ?? driver?.currentLocation.lat;
+      const driverLng = activeRide.driverLocation?.lng ?? driver?.currentLocation.lng;
+
+      if (driverLat !== undefined && driverLng !== undefined) {
+        const target = activeRide.status === 'in_progress' && activeRide.dropoffDistrict
+          ? activeRide.dropoffDistrict
+          : activeRide.pickupDistrict;
+
         const bounds = L.latLngBounds(
-          [driver.currentLocation.lat, driver.currentLocation.lng],
-          [activeRide.pickupDistrict.lat, activeRide.pickupDistrict.lng]
+          [driverLat, driverLng],
+          [target.lat, target.lng]
         );
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
         return;
       }
     }
@@ -888,8 +898,11 @@ export const CityMap: React.FC<CityMapProps> = ({
       .map(d => [d.currentLocation.lat, d.currentLocation.lng]);
     
     if (pickupDistrict) points.push([pickupDistrict.lat, pickupDistrict.lng]);
-    if (points.length > 1) {
-      map.fitBounds(L.latLngBounds(points), { padding: [50, 50], maxZoom: 16 });
+    if (dropoffDistrict) points.push([dropoffDistrict.lat, dropoffDistrict.lng]);
+
+    if (points.length > 0) {
+      const bounds = L.latLngBounds(points);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
     } else {
       handleRecenterCity();
     }

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { AppRole } from '../../types';
-import { Car, User, Shield, Compass, Sparkles, MapPin, Database, Smartphone } from 'lucide-react';
+import { Car, User, Shield, Compass, Sparkles, MapPin, Database, Smartphone, Download } from 'lucide-react';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { SupabaseModal } from './SupabaseModal';
 import { FlutterStructureModal } from './FlutterStructureModal';
+import { ApkDownloadModal } from './ApkDownloadModal';
 
 interface HeaderProps {
   currentRole: AppRole;
@@ -34,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [supabaseModalOpen, setSupabaseModalOpen] = useState(false);
   const [flutterModalOpen, setFlutterModalOpen] = useState(false);
+  const [apkModalOpen, setApkModalOpen] = useState(false);
   const isSupabaseLive = isSupabaseConfigured();
 
   return (
@@ -48,6 +50,16 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
         
         <div className="flex items-center gap-2 sm:gap-3 text-[11px]">
+          {/* APK / PWA Mobile Install Trigger */}
+          <button
+            onClick={() => setApkModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-black transition cursor-pointer bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 shadow-xs border border-amber-300"
+            title="تثبيت التطبيق على الهاتف أو تحميل ملف APK"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-950" />
+            <span>تثبيت / APK 📱</span>
+          </button>
+
           {/* Flutter Project Structure Trigger */}
           <button
             onClick={() => setFlutterModalOpen(true)}
@@ -229,6 +241,12 @@ export const Header: React.FC<HeaderProps> = ({
       <FlutterStructureModal
         isOpen={flutterModalOpen}
         onClose={() => setFlutterModalOpen(false)}
+      />
+
+      {/* APK / Mobile Install Modal */}
+      <ApkDownloadModal
+        isOpen={apkModalOpen}
+        onClose={() => setApkModalOpen(false)}
       />
     </header>
   );

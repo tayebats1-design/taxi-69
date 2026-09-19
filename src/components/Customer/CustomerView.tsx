@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { District, Driver, PricingConfig, RideRequest, VehicleCategory } from '../../types';
 import { OFFICIAL_DISTRICTS } from '../../data/districts';
 import { calculateDistanceKm, calculateDirectDistanceMeters, estimateDurationMinutes, calculateFare, formatDZD } from '../../utils/distance';
@@ -35,9 +35,29 @@ import {
   UserCheck,
   ArrowDownCircle,
   ArrowUpRight,
-  Flag
+  Flag,
+  Bell,
+  BellRing,
+  Smartphone,
+  AlertCircle,
+  Mail,
+  Download
 } from 'lucide-react';
+import { 
+  sendProximityPushNotification, 
+  requestPushPermission, 
+  getNotificationPermissionStatus 
+} from '../../services/pushNotification';
 import { TripSafetyShare } from './TripSafetyShare';
+import { CustomerUser } from '../../types';
+import { CustomerAuthModal } from './CustomerAuthModal';
+import { ApkDownloadModal } from '../Shared/ApkDownloadModal';
+import { 
+  getSavedVerifiedCustomer, 
+  saveVerifiedCustomer, 
+  clearVerifiedCustomer,
+  normalizePhoneNumber 
+} from '../../services/otpService';
 
 interface CustomerViewProps {
   drivers: Driver[];
@@ -79,7 +99,18 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   onCustomerAlighted,
 }) => {
   const [customerName, setCustomerName] = useState('زبون الأبيض سيدي الشيخ');
-  const [customerPhone, setCustomerPhone] = useState('0661 12 34 56');
+  const [verifiedCustomer, setVerifiedCustomer] = useState<CustomerUser | null>(() => getSavedVerifiedCustomer());
+  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
+  const [pendingBooking, setPendingBooking] = useState(false);
+  const [accountAlert, setAccountAlert] = useState<string | null>(null);
+  const [isApkModalOpen, setIsApkModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (verifiedCustomer) {
+      setCustomerName(verifiedCustomer.name);
+    }
+  }, [verifiedCustomer]);
+
   const [selectedCategory, setSelectedCategory] = useState<VehicleCategory>('standard');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet' | 'card'>('cash');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -94,6 +125,15 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   // Rating states
   const [ratingStars, setRatingStars] = useState(5);
   const [reviewText, setReviewText] = useState('');
+
+  // Proximity alert & push notification states (< 100m)
+  const [isProximityPulsing, setIsProximityPulsing] = useState(false);
+  const [pushPermission, setPushPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
+  const hasSentProximityPushRef = useRef<{ [rideId: string]: boolean }>({});
+
+  useEffect(() => {
+    setPushPermission(getNotificationPermissionStatus());
+  }, []);
 
   // Calculate distance & fare
   const distanceKm = pickupDistrict && dropoffDistrict 
@@ -111,6 +151,70 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   const assignedDriver = activeRide?.assignedDriverId 
     ? drivers.find(d => d.id === activeRide.assignedDriverId)
     : null;
+
+  // Calculate live approaching distance for active ride (< 100m proximity check)
+  const isDriverApproaching = activeRide?.status === 'driver_arriving';
+  const isDriverArrivedStatus = activeRide?.status === 'driver_arrived';
+  const taxiCurrentLat = activeRide?.driverLocation?.lat ?? assignedDriver?.currentLocation.lat ?? 0;
+  const taxiCurrentLng = activeRide?.driverLocation?.lng ?? assignedDriver?.currentLocation.lng ?? 0;
+  const targetApproachLat = isDriverApproaching ? activeRide?.pickupDistrict?.lat : activeRide?.dropoffDistrict?.lat;
+  const targetApproachLng = isDriverApproaching ? activeRide?.pickupDistrict?.lng : activeRide?.dropoffDistrict?.lng;
+  const liveApproachingDistanceMeters = (taxiCurrentLat && targetApproachLat !== undefined && targetApproachLng !== undefined) 
+    ? calculateDirectDistanceMeters(taxiCurrentLat, taxiCurrentLng, targetApproachLat, targetApproachLng) 
+    : 0;
+  const isUnder100m = (isDriverApproaching && liveApproachingDistanceMeters > 0 && liveApproachingDistanceMeters <= 100) || isDriverArrivedStatus;
+
+  // Auto trigger push notification & voice alert when driver is < 100m from customer
+  useEffect(() => {
+    if (
+      activeRide &&
+      activeRide.status === 'driver_arriving' &&
+      liveApproachingDistanceMeters > 0 &&
+      liveApproachingDistanceMeters <= 100 &&
+      !hasSentProximityPushRef.current[activeRide.id]
+    ) {
+      hasSentProximityPushRef.current[activeRide.id] = true;
+      setIsProximityPulsing(true);
+      sounds.speakCustomerProximityAlert(activeRide.id);
+      sendProximityPushNotification({
+        distanceMeters: liveApproachingDistanceMeters,
+        driverName: assignedDriver?.name,
+        carModel: assignedDriver?.carModel,
+        rideId: activeRide.id,
+        isTest: false,
+      });
+    }
+  }, [activeRide?.id, activeRide?.status, liveApproachingDistanceMeters, assignedDriver]);
+
+  // Handler to manually trigger a test push notification & voice alert (< 100m)
+  const handleTriggerTestPushNotification = async () => {
+    let perm = pushPermission;
+    if (perm === 'default') {
+      perm = await requestPushPermission();
+      setPushPermission(perm);
+    }
+    setIsProximityPulsing(true);
+    sounds.testCustomerProximityAlert();
+    await sendProximityPushNotification({
+      distanceMeters: liveApproachingDistanceMeters > 0 ? liveApproachingDistanceMeters : 75,
+      driverName: assignedDriver?.name || 'عمي لخضر بوعمامة',
+      carModel: assignedDriver?.carModel || 'رونو سيمبول (Renault Symbol)',
+      rideId: activeRide?.id,
+      isTest: true,
+    });
+
+    // Keep pulsing effect active for 15 seconds to alert the customer
+    setTimeout(() => {
+      if (!isUnder100m) {
+        setIsProximityPulsing(false);
+      }
+    }, 15000);
+  };
+
+  const handleRequestPushPermission = async () => {
+    const perm = await requestPushPermission();
+    setPushPermission(perm);
+  };
 
   // Customer Voice Alert upon driver accepting the ride
   useEffect(() => {
@@ -136,13 +240,54 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     });
   };
 
+  const handleCustomerVerified = (newCust: CustomerUser) => {
+    setVerifiedCustomer(newCust);
+    setCustomerName(newCust.name);
+    setIsCustomerAuthOpen(false);
+
+    // If customer was in the middle of booking a ride, automatically complete it upon OTP verification
+    if (pendingBooking && pickupDistrict && dropoffDistrict) {
+      setPendingBooking(false);
+      onRequestRide({
+        customerId: newCust.id,
+        customerName: newCust.name,
+        customerPhone: newCust.phone || undefined,
+        pickupDistrict,
+        dropoffDistrict,
+        distanceKm,
+        estimatedMinutes,
+        estimatedPrice,
+        serviceType: selectedCategory,
+        paymentMethod,
+        surgeMultiplier: pricingConfig.surgeMultiplier || 1.0,
+        waitingMinutes: 0,
+      });
+    }
+  };
+
   const handleBookRide = () => {
     if (!pickupDistrict || !dropoffDistrict) return;
+    setAccountAlert(null);
     
+    // Require Email OTP verification if not verified
+    const isCurrentVerified = verifiedCustomer && verifiedCustomer.isVerified;
+
+    if (!isCurrentVerified) {
+      setPendingBooking(true);
+      setIsCustomerAuthOpen(true);
+      return;
+    }
+
+    // التحقق من حالة حساب الزبون (تحكم الإدارة)
+    if (verifiedCustomer.status === 'suspended') {
+      setAccountAlert('عذراً، حسابك معلق حالياً من قِبل إدارة المنظومة. يرجى مراجعة إدارة بلدية الأبيض سيدي الشيخ.');
+      return;
+    }
+
     onRequestRide({
-      customerId: 'cust-local-1',
-      customerName: customerName.trim() || 'زبون الأبيض سيدي الشيخ',
-      customerPhone: customerPhone.trim() || '0661 12 34 56',
+      customerId: verifiedCustomer.id,
+      customerName: customerName.trim() || verifiedCustomer.name || 'زبون الأبيض سيدي الشيخ',
+      customerPhone: verifiedCustomer.phone || undefined,
       pickupDistrict,
       dropoffDistrict,
       distanceKm,
@@ -233,20 +378,132 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
     return (
       <div className="bg-white rounded-3xl p-5 md:p-6 shadow-xl border-2 border-emerald-500/40 space-y-4 font-['Cairo',sans-serif]">
-        {/* Status Header */}
-        <div className="bg-emerald-600 text-white p-4 rounded-2xl flex items-center justify-between shadow-sm">
-          <div>
-            <div className="text-[11px] text-emerald-100 font-bold">تتبع مباشر في الوقت الفعلي</div>
-            <h3 className="font-black text-sm sm:text-base mt-0.5 flex items-center gap-2">
-              <span>🚕</span>
-              <span>
-                {isArriving && 'سائق التاكسي في طريقه إليك الآن'}
-                {isArrived && 'وصل السائق إلى موقعك وهو بانتظارك!'}
-                {isInProgress && 'الرحلة جارية نحو وجهتك بسلامة الله'}
-              </span>
-            </h3>
+        {/* Status Header with Pulsing Order Icon */}
+        <div className={`text-white p-4 rounded-2xl flex items-center justify-between shadow-sm transition-all duration-300 ${
+          (isUnder100m || isProximityPulsing)
+            ? 'bg-gradient-to-r from-emerald-700 via-emerald-600 to-amber-700 ring-2 ring-amber-400'
+            : 'bg-emerald-600'
+        }`}>
+          <div className="flex items-center gap-3">
+            {/* Pulsing Order Icon (أيقونة الطلب بتأثير نبضي متوهج) */}
+            <div className="relative flex items-center justify-center shrink-0">
+              {(isUnder100m || isProximityPulsing) && (
+                <>
+                  <span className="absolute -inset-2.5 rounded-2xl bg-amber-400/40 animate-ping duration-1000" />
+                  <span className="absolute -inset-1 rounded-2xl bg-amber-400/60 animate-pulse duration-700" />
+                </>
+              )}
+              <div className={`relative w-12 h-12 rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg transition-all duration-300 ${
+                (isUnder100m || isProximityPulsing)
+                  ? 'bg-amber-400 text-slate-950 ring-4 ring-amber-300 ring-offset-2 ring-offset-emerald-800 scale-105 animate-bounce'
+                  : 'bg-emerald-700 text-white border border-emerald-400/40'
+              }`}>
+                🚕
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] text-emerald-100 font-bold">تتبع مباشر في الوقت الفعلي</span>
+                {(isUnder100m || isProximityPulsing) && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-300 text-slate-950 font-black text-[10px] animate-pulse flex items-center gap-1 shadow-xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-ping inline-block" />
+                    <span>⚡ نبض التنبيه: السائق على بعد أقل من 100م!</span>
+                  </span>
+                )}
+              </div>
+              <h3 className="font-black text-sm sm:text-base mt-0.5 flex items-center gap-2">
+                <span>
+                  {isArrived && 'وصل السائق إلى موقعك وهو بانتظارك!'}
+                  {!isArrived && (isUnder100m || isProximityPulsing) && 'سائق التاكسي اقترب جداً منك (أقل من 100 متر) 🎯'}
+                  {!isArrived && !(isUnder100m || isProximityPulsing) && isArriving && 'سائق التاكسي في طريقه إليك الآن'}
+                  {isInProgress && 'الرحلة جارية نحو وجهتك بسلامة الله'}
+                </span>
+              </h3>
+            </div>
           </div>
-          <div className="w-3 h-3 rounded-full bg-amber-400 animate-ping" />
+
+          <div className="flex items-center gap-2">
+            {(isUnder100m || isProximityPulsing) ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-amber-400 text-slate-950 font-black text-xs shadow-md animate-pulse">
+                <BellRing className="w-4 h-4 animate-bounce" />
+                <span className="hidden sm:inline">أيقونة الطلب نابضة 🔔</span>
+              </div>
+            ) : (
+              <div className="w-3 h-3 rounded-full bg-amber-400 animate-ping" />
+            )}
+          </div>
+        </div>
+
+        {/* Proximity Push Notification Card (< 100m) & Test Trigger */}
+        <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white p-3.5 sm:p-4 rounded-2xl border-2 border-amber-400/90 shadow-xl space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2.5">
+              <div className="relative w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-sm">
+                <Bell className="w-4 h-4" />
+                {(isUnder100m || isProximityPulsing) && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-black text-amber-300 flex items-center gap-2">
+                  <span>إشعار دفع (Push Notification) عند اقتراب السائق</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                    أقل من 100 متر
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  تنبيه فوري بالاهتزاز والصوت مع تحديث نبضي لأيقونة الطلب لتنبيه الزبون بالاستعداد
+                </p>
+              </div>
+            </div>
+
+            {/* Browser Permission Badge */}
+            <div className="flex items-center gap-2 self-start sm:self-auto text-[11px]">
+              <span className="text-slate-400">إذن الإشعارات:</span>
+              {pushPermission === 'granted' ? (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 font-bold border border-emerald-500/40 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>مفعّلة 🔔</span>
+                </span>
+              ) : pushPermission === 'denied' ? (
+                <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 font-bold border border-rose-500/40">
+                  إشعار ذكي مفعّل 📱
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRequestPushPermission}
+                  className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 font-bold border border-amber-500/40 hover:bg-amber-900 transition cursor-pointer flex items-center gap-1"
+                >
+                  <span>طلب الإذن 🔔</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Test Push Notification Button */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-0.5">
+            <div className="text-[11px] text-slate-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block" />
+              <span>
+                {isUnder100m
+                  ? 'السائق الآن على بعد أقل من 100م - تم إرسال الإشعار وتفعيل النبض!'
+                  : 'يمكنك تجربة إشعار الدفع ونبض أيقونة الطلب في أي وقت بالزر المقابل:'}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              id="btn-test-push-notification"
+              onClick={handleTriggerTestPushNotification}
+              className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 whitespace-nowrap"
+              title="إرسال إشعار دفع تجريبي وتشغيل نبض أيقونة الطلب"
+            >
+              <BellRing className="w-4 h-4 animate-bounce" />
+              <span>إرسال إشعار دفع تجريبي (&lt; 100م) 🚀</span>
+            </button>
+          </div>
         </div>
 
         {/* Voice Alert Announcement Banner */}
@@ -300,13 +557,22 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               {/* Header & Status */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center text-lg font-black shrink-0 shadow-xs">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-lg font-black shrink-0 shadow-xs transition-all ${
+                    (isUnder100m || isProximityPulsing)
+                      ? 'bg-amber-400 text-slate-950 animate-bounce'
+                      : 'bg-amber-400 text-slate-950'
+                  }`}>
                     🛰️
                   </div>
                   <div>
                     <div className="text-xs font-black text-amber-300 flex items-center gap-1.5">
                       <span>تتبع حركة التاكسي بالـ GPS الحقيقي المباشر</span>
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                      {(isUnder100m || isProximityPulsing) && (
+                        <span className="px-1.5 py-0.2 rounded bg-amber-400 text-slate-950 font-black text-[9px] animate-pulse">
+                          اقتراب شديد &lt; 100م
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] text-slate-300 font-mono" dir="ltr">
                       GPS: {taxiCurrentLat.toFixed(5)}, {taxiCurrentLng.toFixed(5)}
@@ -325,16 +591,27 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               {/* Real-time Telemetry Metrics Grid */}
               <div className="grid grid-cols-3 gap-2 text-center font-sans">
                 {/* Distance */}
-                <div className="bg-slate-900/90 border border-slate-800 p-2.5 rounded-xl">
+                <div className={`p-2.5 rounded-xl border transition-all ${
+                  (isUnder100m || isProximityPulsing)
+                    ? 'bg-amber-950/80 border-amber-400 ring-2 ring-amber-400/40 shadow-lg animate-pulse'
+                    : 'bg-slate-900/90 border-slate-800'
+                }`}>
                   <div className="text-[10px] text-slate-400 font-bold flex items-center justify-center gap-1">
-                    <MapPin className="w-3 h-3 text-emerald-400" />
+                    <MapPin className={`w-3 h-3 ${(isUnder100m || isProximityPulsing) ? 'text-amber-400 animate-bounce' : 'text-emerald-400'}`} />
                     <span>المسافة إليك</span>
                   </div>
-                  <div className="text-sm sm:text-base font-black text-emerald-400 mt-0.5 font-mono">
+                  <div className={`text-sm sm:text-base font-black mt-0.5 font-mono ${
+                    (isUnder100m || isProximityPulsing) ? 'text-amber-300' : 'text-emerald-400'
+                  }`}>
                     {liveDistanceMeters > 1000 
                       ? `${(liveDistanceMeters / 1000).toFixed(1)} كم` 
                       : `${liveDistanceMeters} م`}
                   </div>
+                  {(isUnder100m || isProximityPulsing) && (
+                    <div className="text-[9px] text-amber-300 font-bold mt-0.5 animate-pulse">
+                      ⚡ &lt; 100م قريب جداً
+                    </div>
+                  )}
                 </div>
 
                 {/* Speed */}
@@ -753,6 +1030,18 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* APK / PWA Mobile Download Button */}
+          <button
+            type="button"
+            onClick={() => setIsApkModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-xs transition cursor-pointer"
+            title="تثبيت التطبيق على الهاتف أو استخراج ملف APK"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-950" />
+            <span className="hidden sm:inline">تحميل APK 📱</span>
+            <span className="sm:hidden">APK</span>
+          </button>
+
           {/* Customer Voice Test Button */}
           <button
             type="button"
@@ -811,34 +1100,116 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
       )}
 
-      {/* Passenger Info (Optional quick inputs) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-        <div>
-          <label className="text-[11px] font-bold text-slate-700 block mb-1">اسم الراكب:</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl">
-            <User className="w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              className="w-full bg-transparent text-xs font-bold text-slate-900 outline-hidden"
-              placeholder="اسمك الكريم..."
-            />
+      {/* Account Status Alert (e.g. if suspended by Admin) */}
+      {accountAlert && (
+        <div className="p-3.5 bg-rose-50 border border-rose-300 rounded-2xl text-xs text-rose-900 flex items-center justify-between gap-2 animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+            <span className="font-bold">{accountAlert}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAccountAlert(null)}
+            className="text-rose-700 hover:text-rose-900 text-xs underline font-bold cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
+
+      {/* Passenger Info & Email OTP Verification Status (بدون رقم هاتف) */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div>
+            <label className="text-[11px] font-bold text-slate-700 block mb-1">اسم الراكب:</label>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl">
+              <User className="w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="w-full bg-transparent text-xs font-bold text-slate-900 outline-hidden"
+                placeholder="اسمك الكريم..."
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-slate-700 block mb-1">حساب البريد الإلكتروني:</label>
+            <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl" dir="ltr">
+              <div className="flex items-center gap-2 overflow-hidden text-left">
+                <Mail className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="text-xs font-mono font-bold text-slate-800 truncate">
+                  {verifiedCustomer?.email || 'غير مسجل حالياً'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCustomerAuthOpen(true)}
+                className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-2 py-1 rounded-lg shrink-0 cursor-pointer shadow-2xs"
+              >
+                {verifiedCustomer?.isVerified ? 'تغيير' : 'تسجيل'}
+              </button>
+            </div>
           </div>
         </div>
-        <div>
-          <label className="text-[11px] font-bold text-slate-700 block mb-1">رقم الهاتف للتواصل:</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-xl" dir="ltr">
-            <Phone className="w-3.5 h-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
-              className="w-full bg-transparent text-xs font-bold text-slate-900 outline-hidden font-mono"
-              placeholder="0661234567"
-            />
+
+        {/* Email OTP Account Verification Status Badge */}
+        {verifiedCustomer && verifiedCustomer.isVerified ? (
+          <div className="flex items-center justify-between bg-emerald-50 border border-emerald-300/80 px-3.5 py-2.5 rounded-2xl text-xs text-emerald-950">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-extrabold text-emerald-950">حساب موثق عبر البريد الإلكتروني</span>
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
+                    Email OTP ✓
+                  </span>
+                </div>
+                <span className="text-[10px] text-emerald-700 block mt-0.5">
+                  حسابك مفعل وجاهز لطلب رحلات التاكسي بالأبيض سيدي الشيخ
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCustomerAuthOpen(true)}
+              className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 underline px-2 py-1 rounded-lg hover:bg-emerald-100/60 transition cursor-pointer shrink-0"
+            >
+              إدارة الحساب
+            </button>
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-amber-50 border-2 border-amber-300 rounded-2xl p-3 text-xs text-amber-950 shadow-2xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-2xs font-bold">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-black text-amber-950 text-xs">تفعيل الحساب إلزامي لطلب الرحلة:</span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 font-bold text-[10px]">مطلوب</span>
+                </div>
+                <span className="text-[11px] text-amber-850 block mt-0.5">
+                  لا يمكن للزبون القيام بأي طلب تاكسي حتى يفعل حسابه بالبريد الإلكتروني (مجاناً وبدون أي تكلفة).
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              id="btn-customer-verify-otp"
+              onClick={() => {
+                setPendingBooking(false);
+                setIsCustomerAuthOpen(true);
+              }}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-98"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>تفعيل الحساب الآن 🛡️</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Booking Form: Simple & Intuitive with Explicit Boarding & Alighting Buttons */}
@@ -1182,6 +1553,21 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           </div>
         )}
 
+        {/* Account Verification Alert for Ride Ordering */}
+        {!(verifiedCustomer && verifiedCustomer.isVerified) && pickupDistrict && dropoffDistrict && (
+          <div className="bg-amber-50 border-2 border-amber-400/90 rounded-2xl p-3 text-xs text-amber-950 space-y-1.5 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="font-black text-amber-950">
+                تنبيه هام: لا يمكن إرسال طلب التاكسي حتى يتم تفعيل الحساب
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-850 leading-relaxed">
+              وفقاً لقوانين الخدمة في الأبيض سيدي الشيخ، يلزم تفعيل حسابك بالبريد الإلكتروني مرة واحدة لتأكيد جديتك للسائقين. اضغط الزر أدناه للتفعيل الفوري ثم إرسال الطلب تلقائياً.
+            </p>
+          </div>
+        )}
+
         {/* Main Request Taxi Action Button */}
         <button
           id="btn-confirm-order-taxi"
@@ -1190,14 +1576,28 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           disabled={!pickupDistrict || !dropoffDistrict}
           className={`w-full py-4 rounded-2xl font-black text-sm sm:text-base transition flex items-center justify-center gap-2 shadow-lg cursor-pointer ${
             pickupDistrict && dropoffDistrict
-              ? 'bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-[1.01]'
+              ? verifiedCustomer && verifiedCustomer.isVerified
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-[1.01]'
+                : 'bg-gradient-to-r from-amber-500 via-amber-600 to-emerald-600 hover:from-amber-600 hover:to-emerald-700 text-slate-950 hover:scale-[1.01]'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed'
           }`}
         >
-          <span>🚕</span>
-          <span>طلب الرحلة الآن</span>
+          {verifiedCustomer && verifiedCustomer.isVerified ? (
+            <>
+              <span>🚕</span>
+              <span>طلب الرحلة الآن</span>
+            </>
+          ) : (
+            <>
+              <ShieldCheck className="w-5 h-5 text-slate-950" />
+              <span>تفعيل الحساب وطلب الرحلة</span>
+            </>
+          )}
+
           {pickupDistrict && dropoffDistrict && (
-            <span className="bg-emerald-800 px-2.5 py-0.5 rounded-xl text-xs text-amber-300 font-mono font-bold">
+            <span className={`px-2.5 py-0.5 rounded-xl text-xs font-mono font-bold ${
+              verifiedCustomer && verifiedCustomer.isVerified ? 'bg-emerald-800 text-amber-300' : 'bg-slate-950 text-amber-300'
+            }`}>
               {formatDZD(estimatedPrice)}
             </span>
           )}
@@ -1296,6 +1696,23 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Customer OTP Verification Modal */}
+      <CustomerAuthModal
+        isOpen={isCustomerAuthOpen}
+        onClose={() => {
+          setIsCustomerAuthOpen(false);
+          setPendingBooking(false);
+        }}
+        currentCustomer={verifiedCustomer}
+        onCustomerVerified={handleCustomerVerified}
+      />
+
+      {/* APK / Mobile Install Modal */}
+      <ApkDownloadModal
+        isOpen={isApkModalOpen}
+        onClose={() => setIsApkModalOpen(false)}
+      />
     </div>
   );
 };

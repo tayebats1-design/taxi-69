@@ -252,6 +252,26 @@ class SoundPlayer {
   private lastTripStartedAlertRideId: string | null = null;
   private lastTripArrivedAlertRideId: string | null = null;
   private lastTripCompletedAlertRideId: string | null = null;
+  private isAudioUnlocked = false;
+
+  /**
+   * Unlock AudioContext and speech synthesis upon first user interaction
+   * Crucial for mobile browsers (iOS Safari, Android Chrome PWA)
+   */
+  unlockAudio() {
+    try {
+      const ctx = this.getContext();
+      if (ctx && ctx.state === 'suspended') {
+        ctx.resume();
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && !this.isAudioUnlocked) {
+        const silent = new SpeechSynthesisUtterance('');
+        silent.volume = 0.01;
+        window.speechSynthesis.speak(silent);
+        this.isAudioUnlocked = true;
+      }
+    } catch (_) {}
+  }
 
   /**
    * Speak arbitrary Arabic text using browser's Speech Synthesis
@@ -268,7 +288,7 @@ class SoundPlayer {
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ar-SA'; // Standard Arabic
-      utterance.rate = 0.93; // Clear cadence for noisy in-car environment
+      utterance.rate = 0.92; // Clear cadence for noisy in-car environment
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
@@ -299,7 +319,7 @@ class SoundPlayer {
 
   /**
    * Customer ride accepted voice alert:
-   * "لقد تم قبول طلبك من طرف [اسم السائق]، سيارة [اسم السيارة] لونها [لون السيارة]"
+   * "تم قبول طلبك! السائق [اسم السائق] في الطريق إليك بسيارة [اسم السيارة] لونها [لون السيارة]"
    */
   speakRideAcceptedCustomerAlert(
     rideId: string | undefined,
@@ -324,11 +344,12 @@ class SoundPlayer {
     const cleanCar = carModel?.replace(/\s*\([^)]*\)/g, '').trim() || 'سيارة التاكسي';
     const cleanColor = carColor?.replace(/\s*\([^)]*\)/g, '').trim() || '';
 
-    // Exactly as requested: "لقد تم قبول طلبك من طرف ويذكر له اسم السائق واسم السيارة ولونها"
-    let announcement = `لقد تم قبول طلبك من طرف ${cleanDriver}، سيارة ${cleanCar}`;
+    // Strictly as requested: "عند قبول الطلب يصل تنبيه صوتي للزبون تم قبول طلبك"
+    let announcement = `تم قبول طلبك! السائق ${cleanDriver} في الطريق إليك بسيارة ${cleanCar}`;
     if (cleanColor) {
       announcement += `، لونها ${cleanColor}`;
     }
+    announcement += '.';
 
     // 3. Small delay (450ms) so chime finishes nicely before speech begins
     setTimeout(() => {
@@ -344,29 +365,50 @@ class SoundPlayer {
   }
 
   /**
-   * Driver proximity alert when approaching customer via GPS:
-   * Alert says to the driver: "لقد اقتربت من الزبون"
+   * Driver incoming ride alert:
+   * 1. Plays audible taxi alert beeps
+   * 2. Synthesizes clear Arabic speech:
+   * "هناك طلب جديد، مكان الانطلاق: [مكان الانطلاق]، والوجهة: [الوجهة]"
    */
-  speakDriverProximityAlert(rideId?: string, force = false) {
-    if (!force && rideId && this.lastDriverProximityAlertRideId === rideId) {
-      return; // Prevent repeating alert for the same ride approach
+  speakRideRequestAlert(rideId: string | undefined, pickupDistrictName: string, dropoffDistrictName?: string, force = false) {
+    if (!force && rideId && this.lastAlertedRideId === rideId) {
+      return; // Prevent duplicate voice alerts for the same incoming ride
     }
+
     if (rideId) {
-      this.lastDriverProximityAlertRideId = rideId;
+      this.lastAlertedRideId = rideId;
     }
 
-    // 1. Play alert chime
-    this.playArrivalChime();
+    // 1. Play alert beeps immediately
+    this.playDriverAlert();
 
-    // 2. Speak the exact requested message: "لقد اقتربت من الزبون"
+    // 2. Format Arabic announcement text strictly as requested:
+    const cleanPickup = pickupDistrictName?.trim() || 'وسط المدينة';
+    const cleanDropoff = dropoffDistrictName?.trim() || 'وجهة غير محددة';
+
+    const announcement = `هناك طلب جديد! مكان الانطلاق: ${cleanPickup}، والوجهة: ${cleanDropoff}.`;
+
+    // 3. Small timeout (450ms) so beep sounds finish before speech begins
     setTimeout(() => {
-      this.speakArabic('لقد اقتربت من الزبون');
+      this.speakArabic(announcement);
     }, 450);
   }
 
   /**
-   * Customer proximity alert when driver approaches customer via GPS:
-   * Alert says to the customer: "سيارة الأجرة اقتربت"
+   * Test driver voice alert to verify audio output
+   */
+  testDriverVoiceAlert() {
+    this.speakRideRequestAlert(
+      undefined,
+      'حي الشعب',
+      'مستشفى الإخوة شنافة',
+      true
+    );
+  }
+
+  /**
+   * 100m Proximity Alert for Customer when driver is at 100 meters:
+   * "تنبيه: سائق التاكسي على بعد 100 متر منك الآن، يرجى الاستعداد للركوب"
    */
   speakCustomerProximityAlert(rideId?: string, force = false) {
     if (!force && rideId && this.lastCustomerProximityAlertRideId === rideId) {
@@ -379,21 +421,42 @@ class SoundPlayer {
     // 1. Play alert chime
     this.playArrivalChime();
 
-    // 2. Speak the exact requested message: "سيارة الأجرة اقتربت"
+    // 2. Speak the exact requested 100m proximity message
     setTimeout(() => {
-      this.speakArabic('سيارة الأجرة اقتربت');
+      this.speakArabic('تنبيه: سائق التاكسي على بعد 100 متر منك الآن، يرجى الاستعداد للركوب');
     }, 450);
   }
 
   /**
-   * Test driver proximity voice alert
+   * 100m Proximity Alert for Driver when approaching customer at 100 meters:
+   * "تنبيه: أنت على بعد 100 متر من موقع الزبون، يرجى الانتباه والتهدئة"
+   */
+  speakDriverProximityAlert(rideId?: string, force = false) {
+    if (!force && rideId && this.lastDriverProximityAlertRideId === rideId) {
+      return; // Prevent repeating alert for the same ride approach
+    }
+    if (rideId) {
+      this.lastDriverProximityAlertRideId = rideId;
+    }
+
+    // 1. Play alert chime
+    this.playDriverAlert();
+
+    // 2. Speak the exact requested 100m driver proximity message
+    setTimeout(() => {
+      this.speakArabic('تنبيه: أنت على بعد 100 متر من موقع الزبون، يرجى الانتباه والتهدئة');
+    }, 450);
+  }
+
+  /**
+   * Test driver proximity voice alert (100 meters)
    */
   testDriverProximityAlert() {
     this.speakDriverProximityAlert(undefined, true);
   }
 
   /**
-   * Test customer proximity voice alert
+   * Test customer proximity voice alert (100 meters)
    */
   testCustomerProximityAlert() {
     this.speakCustomerProximityAlert(undefined, true);
@@ -409,48 +472,12 @@ class SoundPlayer {
     if (!rideId || this.lastCustomerProximityAlertRideId === rideId) {
       this.lastCustomerProximityAlertRideId = null;
     }
-  }
-
-  /**
-   * Driver incoming ride alert:
-   * 1. Plays audible taxi alert beeps
-   * 2. Synthesizes clear Arabic speech: "هناك طلب جديد! موقع الزبون: [اسم الحي]"
-   */
-  speakRideRequestAlert(rideId: string | undefined, pickupDistrictName: string, dropoffDistrictName?: string, force = false) {
-    if (!force && rideId && this.lastAlertedRideId === rideId) {
-      return; // Prevent duplicate voice alerts for the same incoming ride
+    if (!rideId || this.lastAcceptedAlertRideId === rideId) {
+      this.lastAcceptedAlertRideId = null;
     }
-
-    if (rideId) {
-      this.lastAlertedRideId = rideId;
+    if (!rideId || this.lastAlertedRideId === rideId) {
+      this.lastAlertedRideId = null;
     }
-
-    // 1. Play alert beeps immediately
-    this.playDriverAlert();
-
-    // 2. Format Arabic announcement text
-    const cleanPickup = pickupDistrictName?.trim() || 'الأبيض سيدي الشيخ';
-    let announcement = `هناك طلب جديد! موقع الزبون: ${cleanPickup}`;
-    if (dropoffDistrictName && dropoffDistrictName.trim()) {
-      announcement += `. والوجهة: إلى ${dropoffDistrictName.trim()}`;
-    }
-
-    // 3. Small timeout (450ms) so beep sounds finish before speech begins
-    setTimeout(() => {
-      this.speakArabic(announcement);
-    }, 450);
-  }
-
-  /**
-   * Test driver voice alert to verify audio output
-   */
-  testDriverVoiceAlert() {
-    this.speakRideRequestAlert(
-      undefined,
-      'حي الزاوية الشيخية',
-      'مستشفى الأبيض سيدي الشيخ',
-      true
-    );
   }
 
   /**
@@ -533,3 +560,13 @@ class SoundPlayer {
 }
 
 export const sounds = new SoundPlayer();
+
+// Automatically unlock AudioContext and speech synthesis on first user interaction
+if (typeof window !== 'undefined') {
+  const autoUnlock = () => {
+    sounds.unlockAudio();
+  };
+  window.addEventListener('click', autoUnlock, { passive: true });
+  window.addEventListener('touchstart', autoUnlock, { passive: true });
+  window.addEventListener('keydown', autoUnlock, { passive: true });
+}

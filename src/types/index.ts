@@ -42,6 +42,7 @@ export interface Driver {
   rating: number;
   totalTrips: number;
   isOnline: boolean;
+  isVerified?: boolean; // حالة توثيق الحساب برمز OTP (مفعل أم لا)
   status: 'available' | 'busy' | 'offline';
   currentLocation: {
     lat: number;
@@ -93,7 +94,7 @@ export interface RideRequest {
   id: string;
   customerId: string;
   customerName: string;
-  customerPhone: string;
+  customerPhone?: string; // اختياري بعد حذف رقم الهاتف كمتطلب إلزامي للزبون
   pickupDistrict: District;
   dropoffDistrict: District;
   distanceKm: number;
@@ -131,5 +132,29 @@ export interface PricingConfig {
   surgeMultiplier: number;  // معامل التسعير الديناميكي وقت الذروة (مثلاً 1.0 أو 1.25 أو 1.5)
   surgeReason?: string;     // سبب الذروة (أمطار، خروج الموظفين والمدارس، نقص السائقين)
   platformCommissionRate: number; // نسبة عمولة المنصة (مثلاً 0.15 = 15%)
+}
+
+// 4. المستخدمين والزبائن ونظام التحقق برمز الـ OTP عبر البريد الإلكتروني (Email OTP) وإدارة الزبائن
+export interface CustomerUser {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string; // أُلغي كمتطلب إلزامي بناءً على طلب المستخدم
+  isVerified: boolean; // حقل التوثيق وتفعيل الحساب برمز OTP
+  status?: 'active' | 'suspended'; // تحكم الإدارة: نشط أو معلق
+  registeredAt: number;
+  totalTrips?: number;
+  notes?: string;
+}
+
+export interface VerificationCodeRecord {
+  id: string;
+  phone: string;
+  email?: string;
+  userType: 'customer' | 'driver';
+  verificationCode: string; // رمز التحقق المكون من 4 أو 6 أرقام
+  codeExpiresAt: number; // طابع زمني لانتهاء الصلاحية (عادة بعد 3 إلى 5 دقائق)
+  createdAt: number;
+  isUsed: boolean;
 }
 

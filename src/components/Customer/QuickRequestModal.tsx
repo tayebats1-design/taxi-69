@@ -43,7 +43,6 @@ export const QuickRequestModal: React.FC<QuickRequestModalProps> = ({
 }) => {
   const [selectedDropoff, setSelectedDropoff] = useState<District | null>(null);
   const [customerName, setCustomerName] = useState('زبون تاكسي');
-  const [customerPhone, setCustomerPhone] = useState('0655000000');
   const [serviceType, setServiceType] = useState<VehicleCategory>('standard');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'wallet'>('cash');
   const [notes, setNotes] = useState('');
@@ -78,7 +77,6 @@ export const QuickRequestModal: React.FC<QuickRequestModalProps> = ({
     onRequestRide({
       customerId: `cust-${Date.now()}`,
       customerName: customerName.trim() || 'زبون تاكسي',
-      customerPhone: customerPhone.trim() || '0655000000',
       pickupDistrict: effectivePickup,
       dropoffDistrict: effectiveDropoff,
       distanceKm,
@@ -259,8 +257,8 @@ export const QuickRequestModal: React.FC<QuickRequestModalProps> = ({
             </div>
           </div>
 
-          {/* Quick Contact Inputs */}
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          {/* Quick Contact & Details Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div>
               <label className="text-[11px] font-bold text-slate-600 block mb-1">اسم الراكب:</label>
               <input
@@ -272,14 +270,13 @@ export const QuickRequestModal: React.FC<QuickRequestModalProps> = ({
               />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-slate-600 block mb-1">رقم الهاتف:</label>
+              <label className="text-[11px] font-bold text-slate-600 block mb-1">ملاحظة للسائق (اختياري):</label>
               <input
-                type="tel"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-emerald-600"
-                placeholder="06XXXXXXXX"
-                dir="ltr"
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 focus:outline-emerald-600"
+                placeholder="مثال: بجانب الصيدلية المركزية..."
               />
             </div>
           </div>

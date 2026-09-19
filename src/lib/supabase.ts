@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Driver, RideRequest } from '../types';
+import { Driver, RideRequest, CustomerUser, VerificationCodeRecord } from '../types';
 
 // Provided Supabase project credentials for El Abiodh Sidi Cheikh Taxi
 export const SUPABASE_CONFIG = {
@@ -51,7 +51,7 @@ export const getSupabase = (): SupabaseClient | null => {
 export const SUPABASE_SQL_SCHEMA = `-- سكربت إنشاء جداول تطبيق تاكسي الأبيض سيدي الشيخ على Supabase
 -- يمكنك نسخه وتشغيله في Supabase SQL Editor (مرة واحدة فقط)
 
--- 1. جدول السائقين (Drivers)
+-- 1. جدول السائقين (Drivers) مع حقل التوثيق is_verified
 create table if not exists public.drivers (
   id text primary key,
   name text not null,
@@ -65,13 +65,37 @@ create table if not exists public.drivers (
   rating numeric default 5.0,
   total_trips int default 0,
   is_online boolean default true,
+  is_verified boolean default false, -- حقل توثيق حساب السائق برمز OTP
   status text default 'available',
   lat double precision not null,
   lng double precision not null,
   updated_at timestamp with time zone default now()
 );
 
--- 2. جدول طلبات الرحلات (Rides)
+-- 2. جدول الزبائن والمستخدمين (Customers)
+create table if not exists public.customers (
+  id text primary key,
+  name text not null,
+  phone text not null,
+  email text, -- البريد الإلكتروني للمصادقة وتلقي رمز التحقق المجاني Email OTP
+  is_verified boolean default false, -- حقل توثيق حساب الزبون برمز OTP
+  registered_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);
+
+-- 3. جدول رموز التحقق المؤقتة (Verification Codes / Email OTP)
+create table if not exists public.verification_codes (
+  id text primary key,
+  phone text,
+  email text, -- البريد الإلكتروني المستلم لرمز الـ OTP المجاني
+  user_type text not null, -- 'customer' أو 'driver'
+  verification_code text not null, -- الرمز المكون من 6 أرقام
+  code_expires_at timestamp with time zone not null, -- وقت انتهاء الصلاحية (3 إلى 5 دقائق)
+  is_used boolean default false, -- هل تم استخدامه للتفعيل
+  created_at timestamp with time zone default now()
+);
+
+-- 4. جدول طلبات الرحلات (Rides)
 create table if not exists public.rides (
   id text primary key,
   customer_name text not null,
@@ -98,10 +122,22 @@ create table if not exists public.rides (
 
 -- تمكين سياسات القراءة والكتابة العامة (RLS) للسماح بتطبيق التاكسي بالعمل
 alter table public.drivers enable row level security;
+alter table public.customers enable row level security;
+alter table public.verification_codes enable row level security;
 alter table public.rides enable row level security;
 
 create policy "الجميع يمكنهم قراءة وتحديث السائقين"
   on public.drivers for all
+  using (true)
+  with check (true);
+
+create policy "الجميع يمكنهم قراءة وتسجيل الزبائن"
+  on public.customers for all
+  using (true)
+  with check (true);
+
+create policy "الجميع يمكنهم إدارة رموز التحقق OTP"
+  on public.verification_codes for all
   using (true)
   with check (true);
 
@@ -110,8 +146,10 @@ create policy "الجميع يمكنهم طلب ومتابعة الرحلات"
   using (true)
   with check (true);
 
--- تمكين ميزة التزامن المباشر Realtime للجدولين
+-- تمكين ميزة التزامن المباشر Realtime للجداول
 alter publication supabase_realtime add table public.drivers;
+alter publication supabase_realtime add table public.customers;
+alter publication supabase_realtime add table public.verification_codes;
 alter publication supabase_realtime add table public.rides;
 `;
 
@@ -189,6 +227,7 @@ export async function fetchDriversFromSupabase(): Promise<Driver[] | null> {
       rating: Number(d.rating) || 5.0,
       totalTrips: d.total_trips || 0,
       isOnline: Boolean(d.is_online),
+      isVerified: d.is_verified !== undefined ? Boolean(d.is_verified) : true,
       status: d.status || 'available',
       currentLocation: {
         lat: Number(d.lat),
@@ -223,6 +262,7 @@ export async function syncDriverToSupabase(driver: Driver): Promise<boolean> {
       rating: driver.rating,
       total_trips: driver.totalTrips,
       is_online: driver.isOnline,
+      is_verified: driver.isVerified ?? true,
       status: driver.status,
       lat: driver.currentLocation.lat,
       lng: driver.currentLocation.lng,
@@ -236,6 +276,247 @@ export async function syncDriverToSupabase(driver: Driver): Promise<boolean> {
     return true;
   } catch (err) {
     console.warn('Supabase sync exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Sync customer user to Supabase
+ */
+export async function syncCustomerToSupabase(customer: CustomerUser): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+
+  try {
+    const { error } = await sb.from('customers').upsert({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone || '',
+      email: customer.email || null,
+      is_verified: customer.isVerified,
+      status: customer.status || 'active',
+      registered_at: new Date(customer.registeredAt).toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn('Error syncing customer to Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase customer sync exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Fetch registered customers from Supabase
+ */
+export async function fetchCustomersFromSupabase(): Promise<CustomerUser[]> {
+  const sb = getSupabase();
+  if (!sb) return [];
+
+  try {
+    const { data, error } = await sb
+      .from('customers')
+      .select('*')
+      .order('registered_at', { ascending: false });
+
+    if (error) {
+      console.warn('Error fetching customers from Supabase:', error.message);
+      return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    return data.map((row: any) => ({
+      id: row.id,
+      name: row.name || 'زبون بدون اسم',
+      email: row.email || '',
+      phone: row.phone || undefined,
+      isVerified: Boolean(row.is_verified),
+      status: (row.status === 'suspended' ? 'suspended' : 'active') as 'active' | 'suspended',
+      registeredAt: row.registered_at ? new Date(row.registered_at).getTime() : Date.now(),
+      notes: row.notes || undefined,
+    }));
+  } catch (err) {
+    console.warn('Error fetching customers exception:', err);
+    return [];
+  }
+}
+
+/**
+ * Delete customer from Supabase
+ */
+export async function deleteCustomerFromSupabase(customerId: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+
+  try {
+    const { error } = await sb.from('customers').delete().eq('id', customerId);
+    if (error) {
+      console.warn('Error deleting customer from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase delete customer exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Save OTP verification code to Supabase
+ */
+export async function saveVerificationCodeToSupabase(record: VerificationCodeRecord): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+
+  try {
+    const { error } = await sb.from('verification_codes').insert({
+      id: record.id,
+      phone: record.phone || null,
+      email: record.email || null,
+      user_type: record.userType,
+      verification_code: record.verificationCode,
+      code_expires_at: new Date(record.codeExpiresAt).toISOString(),
+      is_used: record.isUsed,
+      created_at: new Date(record.createdAt).toISOString(),
+    });
+
+    if (error) {
+      console.warn('Error saving OTP to Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase save OTP exception:', err);
+    return false;
+  }
+}
+
+/**
+ * Send Email OTP via Supabase Auth service (Built-in free email dispatch)
+ * يقوم بإرسال رمز OTP أو رابط تأكيد مباشرة إلى البريد الإلكتروني للمستخدم مجاناً
+ */
+export async function sendSupabaseEmailOTP(email: string): Promise<{
+  success: boolean;
+  message: string;
+  error?: any;
+}> {
+  const sb = getSupabase();
+  if (!sb) {
+    return {
+      success: false,
+      message: 'إعدادات اتصال Supabase غير متوفرة حالياً.',
+    };
+  }
+
+  try {
+    const { data, error } = await sb.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
+      },
+    });
+
+    if (error) {
+      console.warn('Supabase signInWithOtp error:', error);
+      return {
+        success: false,
+        message: error.message || 'تعذر إرسال الرمز عبر خدمة Supabase البريدية.',
+        error,
+      };
+    }
+
+    return {
+      success: true,
+      message: `تم إرسال رمز التحقق بنجاح إلى بريدك الإلكتروني (${email}) عبر خوادم Supabase المجانية.`,
+    };
+  } catch (err: any) {
+    console.warn('Supabase sendSupabaseEmailOTP exception:', err);
+    return {
+      success: false,
+      message: err.message || 'حدث خطأ غير متوقع أثناء إرسال البريد الإلكتروني.',
+      error: err,
+    };
+  }
+}
+
+/**
+ * Verify Email OTP via Supabase Auth service
+ * التحقق من صحة الرمز المدخل مع خادم Supabase
+ */
+export async function verifySupabaseEmailOTP(
+  email: string,
+  token: string
+): Promise<{
+  success: boolean;
+  message: string;
+  session?: any;
+  user?: any;
+}> {
+  const sb = getSupabase();
+  if (!sb) {
+    return {
+      success: false,
+      message: 'إعدادات Supabase غير متوفرة.',
+    };
+  }
+
+  try {
+    const cleanToken = token.trim();
+    const { data, error } = await sb.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: cleanToken,
+      type: 'email',
+    });
+
+    if (error) {
+      console.warn('Supabase verifyOtp error:', error);
+      return {
+        success: false,
+        message: error.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية.',
+      };
+    }
+
+    return {
+      success: true,
+      message: 'تم التحقق من البريد الإلكتروني بنجاح وتأكيد الجلسة!',
+      session: data.session,
+      user: data.user,
+    };
+  } catch (err: any) {
+    console.warn('Supabase verifyOtp exception:', err);
+    return {
+      success: false,
+      message: err.message || 'خطأ أثناء مطابقة الرمز في Supabase.',
+    };
+  }
+}
+
+/**
+ * Mark OTP verification code as used in Supabase
+ */
+export async function markVerificationCodeUsedInSupabase(recordId: string): Promise<boolean> {
+  const sb = getSupabase();
+  if (!sb) return false;
+
+  try {
+    const { error } = await sb
+      .from('verification_codes')
+      .update({ is_used: true })
+      .eq('id', recordId);
+
+    if (error) {
+      console.warn('Error marking OTP used in Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase update OTP exception:', err);
     return false;
   }
 }

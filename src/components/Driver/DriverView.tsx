@@ -346,10 +346,10 @@ export const DriverView: React.FC<DriverViewProps> = ({
             <button
               onClick={() => sounds.testDriverProximityAlert()}
               className="px-2.5 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-300 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-2xs"
-              title="تجربة تنبيه: لقد اقتربت من الزبون"
+              title="تجربة تنبيه صوتي: أنت على بعد 100 متر من موقع الزبون"
             >
               <Volume2 className="w-3.5 h-3.5 text-sky-700" />
-              <span>اقتربت من الزبون 🔔</span>
+              <span>وصول 100م 🔔</span>
             </button>
 
             <button
@@ -423,14 +423,14 @@ export const DriverView: React.FC<DriverViewProps> = ({
                   </span>
                   <div>
                     <span className="font-extrabold">تنبيه صوتي للسائق: </span>
-                    <span className="font-medium text-slate-800">تم نطق موقع الزبون صوتياً 📢</span>
+                    <span className="font-medium text-slate-800">هناك طلب جديد (نطق مكان الانطلاق والوجهة) 📢</span>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => sounds.speakRideRequestAlert(activeRide.id, activeRide.pickupDistrict.nameAr, activeRide.dropoffDistrict.nameAr, true)}
                   className="px-2.5 py-1 bg-slate-950 hover:bg-slate-900 text-amber-300 text-xs font-black rounded-xl shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95"
-                  title="إعادة نطق موقع الزبون صوتياً"
+                  title="إعادة نطق تفاصيل الطلب صوتياً للسائق"
                 >
                   <Volume2 className="w-3.5 h-3.5" />
                   <span>إعادة النطق 🔊</span>
@@ -647,18 +647,30 @@ export const DriverView: React.FC<DriverViewProps> = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <h5 className="font-black text-slate-900 text-sm">الراكب: {activeRide.customerName}</h5>
-                    <p className="text-xs font-mono font-bold text-amber-900 mt-0.5" dir="ltr">
-                      {activeRide.customerPhone}
-                    </p>
+                    {activeRide.customerPhone ? (
+                      <p className="text-xs font-mono font-bold text-amber-900 mt-0.5" dir="ltr">
+                        {activeRide.customerPhone}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-emerald-800 font-bold mt-0.5">
+                        حساب زبون معتمد بالبريد الإلكتروني ✓
+                      </p>
+                    )}
                   </div>
 
-                  <a
-                    href={`tel:${activeRide.customerPhone.replace(/\s/g, '')}`}
-                    className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    <span>اتصال بالراكب</span>
-                  </a>
+                  {activeRide.customerPhone ? (
+                    <a
+                      href={`tel:${activeRide.customerPhone.replace(/\s/g, '')}`}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-xs cursor-pointer"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      <span>اتصال بالراكب</span>
+                    </a>
+                  ) : (
+                    <div className="px-2.5 py-1.5 bg-emerald-100/80 text-emerald-900 rounded-xl text-[11px] font-black border border-emerald-300">
+                      طلب مباشر موثق 🛡️
+                    </div>
+                  )}
                 </div>
 
                 {/* Locations and Google Maps Navigation Launchers (نظام الملاحة عبر خرائط جوجل) */}
